@@ -1,0 +1,35 @@
+name: CI
+
+# The test suite is self-contained: it drives the platform against a fake Homebridge api
+# and fake fixtures, so it needs no hardware, no network and no Homebridge install.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Test
+        run: npm test
+      # Clean on the first run (eslint 10.11.0: 0 errors, 0 warnings), so this is a gate.
+      - name: Lint
+        run: npm run lint
+      - name: Syntax check every shipped file
+        run: |
+          for f in index.js lib/*.js bin/*.js test/*.js; do node --check "$f"; done
+      - name: Published contents
+        run: npm pack --dry-run

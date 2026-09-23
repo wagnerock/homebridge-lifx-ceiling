@@ -1,0 +1,7 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+*.tgz
+config/mapping.local.json
+__pycache__/
+out/

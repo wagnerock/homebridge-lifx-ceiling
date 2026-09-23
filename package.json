@@ -1,0 +1,53 @@
+{
+  "name": "homebridge-lifx-ceiling",
+  "version": "1.1.2",
+  "description": "Homebridge platform plugin that exposes LIFX Ceiling uplight and downlight as separate full-colour HomeKit lights on the LAN \u2014 no cloud, no LIFX bridge required.",
+  "license": "MIT",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "lifx",
+    "ceiling",
+    "uplight",
+    "downlight",
+    "matrix",
+    "homekit",
+    "lan"
+  ],
+  "files": [
+    "index.js",
+    "lib/",
+    "bin/",
+    "tools/*.py",
+    "test/",
+    "config.schema.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node ./test/smoke.js",
+    "lint": "eslint .",
+    "doctor": "node ./bin/doctor.js",
+    "calibrate": "node ./bin/calibrate.js"
+  },
+  "dependencies": {
+    "node-lifx-lan-multi": "^3.0.0"
+  },
+  "author": "N Wagner",
+  "devDependencies": {
+    "eslint": "^10.11.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wagnerock/homebridge-lifx-ceiling.git"
+  },
+  "homepage": "https://github.com/wagnerock/homebridge-lifx-ceiling#readme",
+  "bugs": {
+    "url": "https://github.com/wagnerock/homebridge-lifx-ceiling/issues"
+  }
+}

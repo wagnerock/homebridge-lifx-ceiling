@@ -1,0 +1,41 @@
+name: Bug report
+description: Something the lights or the plugin is doing that it should not be
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please run `npm run doctor` first and paste its output — it names the plugin,
+        Homebridge, node and `node-lifx-lan-multi` versions and whether an acknowledged
+        tile write round-trips, which answers most reports before anyone types.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which light, which half, what you asked for, what it did.
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `npm run doctor`
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: log
+    attributes:
+      label: Homebridge log, from startup to the problem
+      description: Look for lines starting `[LIFX Ceilings]` — mapping, live, transport moved, UNACKED.
+      render: shell
+    validations: { required: true }
+  - type: input
+    id: model
+    attributes:
+      label: Ceiling model and firmware
+      description: US (pid 176) or Intl (pid 177), firmware if you can see it in the LIFX app.
+    validations: { required: true }
+  - type: input
+    id: versions
+    attributes:
+      label: Homebridge and node versions
+      placeholder: homebridge 2.4.0 / node 24.21.0
+    validations: { required: true }

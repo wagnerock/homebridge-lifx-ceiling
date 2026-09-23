@@ -1,0 +1,24 @@
+name: Hardware report
+description: A LIFX product that is not pid 176/177, or a ceiling whose halves differ
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The uplight/downlight split is compiled in as the four corner cells
+        (`matrix.CEILING_UPLIGHT_CELLS = [0, 7, 56, 63]`), verified on four US
+        pid 176 fixtures. If your halves land differently, do **not** edit the plugin —
+        use the per-fixture `mappingFile` and open a report here so the model can be
+        fixed in code for everyone.
+  - type: input
+    id: product
+    attributes:
+      label: Product, vendor and pid
+      description: From the plugin log at startup, or `npm run doctor`.
+    validations: { required: true }
+  - type: textarea
+    id: observed
+    attributes:
+      label: What the uplight and downlight actually did
+      description: Which cells lit, where colour appeared, whether the panel showed dots.
+    validations: { required: true }
