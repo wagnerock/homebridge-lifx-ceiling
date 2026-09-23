@@ -1,6 +1,6 @@
 {
   "name": "homebridge-lifx-ceiling",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Homebridge platform plugin that exposes LIFX Ceiling uplight and downlight as separate full-colour HomeKit lights on the LAN \u2014 no cloud, no LIFX bridge required.",
   "license": "MIT",
   "main": "index.js",

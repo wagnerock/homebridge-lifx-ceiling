@@ -159,8 +159,12 @@ node bin/doctor.js 192.168.1.50
 the API the ack-required tile write depends on. If a future release removes it, tile writes
 silently fall back to un-acked, and this is the command that tells you. It prints the
 geometry in force, checks that each ceiling answers broadcast and then a unicast request aimed
-at it, and finishes with one acked svc-715 round-trip per ceiling that rewrites each
-fixture's *current* colours — so the room looks exactly as it did while it runs. Non-ceiling
+at it, and — only if you pass `--write` — finishes with one acked svc-715 round-trip per
+ceiling, which reads that fixture's real per-cell buffer (svc 710) and writes the same
+buffer back. Without `--write` it changes nothing at all and says the write path is
+untested rather than proving it on your room. It never touches power, in any mode.
+(`GetLightState` is not the fixture's state: it is one retained whole-light value, and
+painting 64 cells from it flattens the split and lifts brightness.) Non-ceiling
 products are skipped by pid and by an empty tile chain, and a missing global `homebridge`
 module is reported as INFO, because a plugin is installed as a dependency *of* Homebridge.
 

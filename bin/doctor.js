@@ -15,13 +15,23 @@
  *   2. Whether each fixture answers broadcast discovery, and whether it answers a
  *      unicast request when it does not — the distinction that mattered on 2026-09-22,
  *      when broadcast silence was mistaken for absence.
- *   3. Whether an ack-required svc-715 write actually round-trips. The write sends the
- *      fixture's CURRENT colours back to it, so the room looks exactly as it did.
+ *   3. Whether an ack-required svc-715 write round-trips — ONLY with --write, because a
+ *      diagnostic has no business changing the light. With --write it reads the fixture's
+ *      real per-cell buffer (svc 710) and writes that buffer straight back. Without it,
+ *      the write path is reported as untested instead of being tested on your room.
+ *
+ * Never, in any mode, does this tool touch power. An earlier version fabricated 64 cells
+ * from a single GetLightState colour and pushed them flat at full brightness — that lit
+ * every ceiling in the house during a deploy while Home.app showed nothing happening,
+ * because these writes come from a separate process and never reach homebridge.log.
  *
  * Exit code is non-zero if anything failed, so this is usable from CI or a cron job.
  */
 
 const fail = [];
+// Read-only unless told otherwise. Proving an acked write needs a real write, and "it only
+// writes the current state back" is a sentence that has already been wrong once here.
+const WRITE = process.argv.includes('--write');
 const say = (label, ok, detail = '') => {
   console.log(`${ok ? 'OK  ' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`);
   if (!ok) fail.push(label);
@@ -66,7 +76,7 @@ function globalHomebridgeVersion() {
   say('geometry', JSON.stringify(CEILING_UPLIGHT_CELLS) === '[0,7,56,63]',
     `uplight ${CEILING_UPLIGHT_CELLS.join(',')} downlight ${ceilingsDownlightCells(8, 8).length} cells (hardware-verified for pid 176/177)`);
 
-  const { writeTileAcked } = require('../lib/tilewrite');
+  const { writeTileAcked, readTileAcked } = require('../lib/tilewrite');
   const Lifx = require('node-lifx-lan-multi');
   const lifx = new Lifx();
   let found = [];
@@ -102,15 +112,17 @@ function globalHomebridgeVersion() {
     try { st = await d.getLightState({}); } catch (e) { /* reported below */ }
     say('  unicast GetLightState', !!st, st ? `power ${st.power ? 'on' : 'off'}, ${(st.color && st.color.kelvin) || '?'}K` : 'no reply — fixture unreachable at this address');
 
-    if (canAck && st && st.color) {
+    if (!WRITE) say('  acked svc-715 round-trip', true, 'not attempted — read-only run, pass --write to prove it (writes the buffer back unchanged)');
+    if (canAck && WRITE) {
       try {
-        const colors = new Array(64).fill({
-          hue: (st.color.hue || 0) / 360, saturation: (st.color.saturation || 0) / 100,
-          brightness: st.color.brightness == null ? 1 : st.color.brightness, kelvin: st.color.kelvin || 3000,
-        });
+        // Read the truth out of the fixture and hand the same thing back. Deliberately NOT
+        // a colour derived from GetLightState: service 102 answers with one retained
+        // whole-light value, and painting 64 cells with it flattens the uplight/downlight
+        // split and can raise brightness on a fixture that was dark.
+        const colors = await readTileAcked(d, { tile_index: 0, x: 0, y: 0, width: 8, length: 1 }, console.error);
         const pkt = await writeTileAcked(d, { tile_index: 0, length: 1, x: 0, y: 0, width: 8, duration: 0, colors }, console.error);
         const svc = (pkt && pkt.header && pkt.header.type) || (pkt && pkt.type);
-        say('  acked svc-715 round-trip', svc !== 223, `answer service ${svc} (current colours rewritten unchanged, room visually untouched)`);
+        say('  acked svc-715 round-trip', svc !== 223, `answer service ${svc} (${colors.length} cells written back exactly as read)`);
       } catch (e) {
         say('  acked svc-715 round-trip', false, e.message);
       }

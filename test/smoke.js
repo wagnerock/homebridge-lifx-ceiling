@@ -845,6 +845,31 @@ fx.destroy();
 }
 
 
+// The diagnostic must not be able to light the room. Regression guard for the deploy where
+// doctor.js fabricated 64 cells from one GetLightState colour and pushed them flat at full
+// brightness, turning every ceiling on while Home.app showed nothing happening.
+{
+  const doc = fs.readFileSync(require('path').join(__dirname, '..', 'bin/doctor.js'), 'utf8');
+  assert.ok(!/new\s+Array\s*\(\s*64\s*\)\s*\.fill/.test(doc), 'doctor.js fabricates a flat 64-cell fill — that destroys the uplight/downlight split');
+  assert.ok(!/brightness\s*==\s*null\s*\?\s*1/.test(doc), 'doctor.js invents full brightness when the read returns none');
+  assert.ok(!/setPower|service:\s*21\b|power:\s*(true|1)\b/i.test(doc), 'doctor.js must never touch power');
+  assert.ok(/process\.argv\.includes\('--write'\)/.test(doc), 'doctor.js writes must be opt-in via --write');
+  assert.ok(/if \(!WRITE\)/.test(doc), 'a read-only run must report the write path as untested, not pass it');
+  assert.ok(/readTileAcked\(/.test(doc), 'doctor.js must read the real tile buffer before writing it back');
+  ok('doctor.js cannot light the room: read-only by default, no fabricated cells, no power writes');
+}
+
+// The tile buffer read exists, is acked, and is the documented service 710.
+{
+  const tw = require('../lib/tilewrite');
+  assert.strictEqual(typeof tw.readTileAcked, 'function', 'lib/tilewrite.js must export readTileAcked');
+  assert.strictEqual(tw.TILE_GET_STATE_64, 710, 'tile read is AT 710 Tile::GetTileState64');
+  const src = fs.readFileSync(require('path').join(__dirname, '..', 'lib/tilewrite.js'), 'utf8');
+  assert.match(src, /type:\s*TILE_GET_STATE_64,\s*ack_required:\s*true/, 'the tile read must require an ack');
+  assert.match(src, /res_required:\s*true/, 'a read needs res_required, or the fixture answers with nothing');
+  ok('tile buffer read is svc 710, ack-required, and returns cells');
+}
+
 console.log(`\n${n} assertions passed.`);
 
   /*
