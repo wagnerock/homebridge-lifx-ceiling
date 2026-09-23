@@ -79,8 +79,7 @@ function globalHomebridgeVersion() {
 
   // Only ceilings. `svc 715` to a white bulb or a color strip is not a harmless no-op:
   // this tool writes frames, and it has no business touching a light it cannot model.
-  const { isCeiling } = require('../lib/platform');
-  const { hasMatrix } = require('../lib/platform');
+  const { isCeiling, hasMatrix } = require('../lib/platform');
   const candidates = found.filter((d) => d && d.deviceInfo && (!target || d.ip === target));
   const ceilings = [];
   for (const d of candidates) {

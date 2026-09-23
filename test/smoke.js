@@ -7,44 +7,29 @@ const matrix = require('../lib/matrix');
 let n = 0;
 const ok = (label) => { n++; console.log(`  ok ${n} — ${label}`); };
 
-// 8x8 geometry
-const ring = matrix.ringIndices(8, 8);
-const core = matrix.coreIndices(8, 8);
-assert.strictEqual(ring.length, 28, `ring should be 28, got ${ring.length}`);
-ok('ring(8x8) is 28 perimeter pixels');
-assert.strictEqual(core.length, 36, `core should be 36, got ${core.length}`);
-ok('core(8x8) is 36 inner pixels');
+// THE GEOMETRY IS A CONSTANT: one product, one split, compiled in. There is no mapping
+// module, no region selection and no radius to tune — lib/matrix.js exports the corner
+// model and nothing else, and that is the whole product decision.
+const os = require('os');
+const fs = require('fs');
+const CORNERS = [0, 7, 56, 63];
+assert.deepStrictEqual(matrix.CEILING_UPLIGHT_CELLS, CORNERS, 'uplight is the four corner cells');
+ok('the uplight is the four corner cells [0,7,56,63]');
 
-// disjoint + exhaustive
-const overlap = ring.filter((i) => core.includes(i));
-assert.strictEqual(overlap.length, 0, `ring/core overlap: ${overlap.join(',')}`);
-ok('ring and core are disjoint');
-assert.strictEqual(ring.length + core.length, 64);
-ok('ring + core cover all 64 pixels');
-assert.deepStrictEqual([...ring, ...core].sort((a, b) => a - b), matrix.allIndices(8, 8));
-ok('union equals the full buffer');
+const DOWN = matrix.ceilingsDownlightCells(8, 8);
+assert.deepStrictEqual(DOWN, matrix.complement(CORNERS, 8, 8), 'downlight is the complement of the corners');
+assert.strictEqual(DOWN.length, 60, `downlight must be 60 cells, got ${DOWN.length}`);
+assert.deepStrictEqual(matrix.ceilingsDownlightCells(), DOWN, 'the default buffer is the 8x8 ceiling');
+ok('the downlight is the other 60 cells');
 
-// validator accepts ring/core, rejects overlap and gaps
-matrix.validateCoverage('ring', 'core', 8, 8);
-ok('validateCoverage accepts ring/core');
-assert.throws(() => matrix.validateCoverage('all', 'core', 8, 8), /overlap/);
-ok('validateCoverage rejects overlapping regions');
-assert.throws(() => matrix.validateCoverage([0, 1], [2], 8, 8), /cover 3\/64/);
-ok('validateCoverage rejects incomplete coverage');
-
-// invert
-assert.strictEqual(matrix.invertRegion('ring', 8, 8), 'core');
-assert.strictEqual(matrix.invertRegion('core', 8, 8), 'ring');
-assert.deepStrictEqual(matrix.invertRegion([0, 1, 2], 8, 8), matrix.allIndices(8, 8).slice(3));
-ok('invertRegion swaps ring/core and complements arrays');
-
-// explicit index arrays + bounds
-assert.deepStrictEqual(matrix.indicesForRegion([5, 5, 3], 8, 8), [3, 5]);
-ok('indicesForRegion de-dupes and sorts explicit arrays');
-assert.throws(() => matrix.indicesForRegion([64], 8, 8), /out of range/);
-ok('indicesForRegion rejects out-of-range index');
-assert.throws(() => matrix.indicesForRegion('sideways', 8, 8), /unknown region/);
-ok('indicesForRegion rejects unknown region name');
+// Disjoint and exhaustive: there is exactly one way to split this fixture.
+const touch = CORNERS.filter((i) => DOWN.includes(i));
+assert.strictEqual(touch.length, 0, `the halves overlap at ${touch.join(',')}`);
+assert.deepStrictEqual([...CORNERS, ...DOWN].sort((a, b) => a - b), matrix.allIndices(8, 8));
+ok('uplight and downlight are disjoint and cover all 64 cells');
+assert.deepStrictEqual(matrix.ceilingsDownlightCells(2, 2), [1, 2, 3], 'the rule is the complement at any buffer size');
+assert.deepStrictEqual(matrix.complement([0, 1, 2], 8, 8), matrix.allIndices(8, 8).slice(3));
+ok('complement returns every index the input does not own');
 
 // colour validation — the two bugs that cost the most time on real hardware
 assert.throws(() => matrix.assertColor({ hue: 240, saturation: 1, brightness: 1, kelvin: 3500 }), /hue must be a float/);
@@ -56,33 +41,17 @@ ok('assertColor requires absolute kelvin on every colour');
 matrix.assertColor({ hue: 0.6667, saturation: 1, brightness: 0.7, kelvin: 4000 });
 ok('assertColor accepts a normalised colour');
 
-// applyRegion is non-mutating and only paints the target region
+// paintCells is non-mutating and only paints the target cells
 const base = matrix.allIndices(8, 8).map(() => ({ hue: 0, saturation: 0, brightness: 0.2, kelvin: 3000 }));
 const frozen = JSON.stringify(base);
 const RED = { hue: 0, saturation: 1, brightness: 0.8, kelvin: 3500 };
-const painted = matrix.applyRegion(base, ring, RED, 8, 8);
-assert.strictEqual(JSON.stringify(base), frozen, 'applyRegion must not mutate input');
-ok('applyRegion does not mutate the source buffer');
-assert.strictEqual(painted[0].saturation, 1, 'perimeter pixel 0 should be red');
-assert.strictEqual(painted[9].saturation, 0, 'inner pixel 9 must stay untouched');
-ok('applyRegion paints only the target pixels');
-
-// mapping module
-const { Mapping } = require('../lib/mapping');
-const os = require('os');
-const fs = require('fs');
-const tmp = fs.mkdtempSync(require('path').join(os.tmpdir(), 'lifxmap-'));
-const m = new Mapping(require('path').join(tmp, 'mapping.json'), () => {});
-const CORNERS = [0, 7, 56, 63];
-assert.deepStrictEqual(m.data.uplight, CORNERS);
-ok('Mapping defaults to the verified corner model (uplight = 0,7,56,63)');
-assert.deepStrictEqual(m.data.downlight, matrix.complement(CORNERS, 8, 8));
-ok('Mapping default downlight is the other 60 cells');
-m.setDevice('dc:a6:32:6c:1b:f0', 'core', 'ring');
-assert.strictEqual(m.forDevice(['dc:a6:32:6c:1b:f0', '192.168.1.50']).source, 'perDevice:dc:a6:32:6c:1b:f0');
-ok('Mapping prefers the MAC override over global');
-assert.strictEqual(m.forDevice(['192.168.1.50']).source, 'global');
-ok('Mapping falls back to global when no override exists');
+const painted = matrix.paintCells(base, CORNERS, RED, 8, 8);
+assert.strictEqual(JSON.stringify(base), frozen, 'paintCells must not mutate input');
+ok('paintCells does not mutate the source buffer');
+assert.strictEqual(painted[0].saturation, 1, 'corner pixel 0 should be red');
+assert.strictEqual(painted[63].saturation, 1, 'corner pixel 63 should be red');
+assert.strictEqual(painted[9].saturation, 0, 'panel pixel 9 must stay untouched');
+ok('paintCells paints only the target cells');
 
 // CANONICAL MAC FORM (proven on hardware): discover() answers with device.mac
 // UPPERCASE colon-separated and no deviceInfo.mac at all, config stores lowercase
@@ -95,65 +64,28 @@ assert.strictEqual(matrix.normalizeMac('192.168.1.50'), null, 'an IPv4 address i
 assert.strictEqual(matrix.normalizeMac(undefined), null);
 ok('normalizeMac collapses all three MAC formats to one canonical value, null for IPs/undefined');
 
-// THE GEOMETRY IS A CONSTANT: the verified corner model lives in lib/matrix.js and the
-// package ships no mapping data file at all — nothing site-specific can leak from a file
-// that does not exist. A user's own optional mappingFile, or a `perDevice` entry in one,
-// is the only way to override a single fixture.
-const { DEFAULT_MAP } = require('../lib/mapping');
-assert.deepStrictEqual(matrix.CEILING_UPLIGHT_CELLS, CORNERS, 'uplight is the four corner cells');
-assert.deepStrictEqual(matrix.ceilingsDownlightCells(8, 8), matrix.complement(CORNERS, 8, 8), 'downlight is the other 60 cells');
-assert.deepStrictEqual(DEFAULT_MAP.uplight, CORNERS, 'the mapping default is the corner model');
-assert.strictEqual(DEFAULT_MAP.downlight.length, 60, 'the mapping default downlight is 60 cells');
-assert.deepStrictEqual(DEFAULT_MAP.perDevice, {}, 'no per-fixture overrides ship');
-assert.ok(!fs.existsSync(require('path').join(__dirname, '..', 'config', 'mapping.json')), 'the package must not ship config/mapping.json');
-ok('the corner model is a code constant and no mapping data file ships');
+// Nothing site-specific ships, and nothing can be pointed at a file that would move the
+// geometry: no config/ directory, no data file, no path in the schema.
+assert.ok(!fs.existsSync(require('path').join(__dirname, '..', 'config')), 'no config/ directory may ship')
+// Stale prose is a real defect: identity was the fixture IP until 1.1.0 and the comments
+// said so in those words. Comments mandating a DHCP reservation now argue for a requirement
+// the code does not have — a future reader would "fix" working code to match them.
+{
+  const plat = fs.readFileSync(require('path').join(__dirname, '..', 'lib/platform.js'), 'utf8');
+  assert.ok(!/needs a DHCP reservation|IDENTITY IS THE FIXTURE IP/i.test(plat), 'lib/platform.js carries pre-1.1.0 IP-identity prose');
+};
+assert.ok(!fs.existsSync(require('path').join(__dirname, '..', 'lib', 'mapping.js')), 'lib/mapping.js must not exist');
+ok('the corner model is a code constant and no data file ships');
 
-const absent = new Mapping(require('path').join(tmp, 'does-not-exist.json'), () => {});
-for (const keys of [['AA:BB:CC:DD:EE:FF'], ['aabbccddeeff'], ['aa:bb:cc:dd:ee:ff'], ['192.168.1.50']]) {
-  const r = absent.forDevice(keys, 8, 8);
-  assert.strictEqual(r.source, 'global', `${keys[0]} has no override when there is no file`);
-  assert.deepStrictEqual(r.uplight, CORNERS);
-  assert.strictEqual(r.downlight.length, 60);
-}
-ok('with no mapping file every fixture resolves the corner model, by MAC or IP');
-
-// A user's own mapping file, keyed by MAC, still wins over global. Every address
-// below is fake; discovery hands back `device.mac` UPPERCASE colon-separated, so
-// the lookup must survive all three shapes.
-const seededFile = require('path').join(tmp, 'seed.json');
-fs.writeFileSync(seededFile, JSON.stringify({
-  uplight: CORNERS,
-  downlight: matrix.complement(CORNERS, 8, 8),
-  perDevice: { 'aa:bb:cc:dd:ee:ff': { uplight: CORNERS, downlight: matrix.complement(CORNERS, 8, 8) } },
-}));
-const seeded = new Mapping(seededFile, () => {});
-const a = seeded.forDevice(['AA:BB:CC:DD:EE:FF'], 8, 8);
-const b = seeded.forDevice(['aabbccddeeff'], 8, 8);
-const c = seeded.forDevice(['aa:bb:cc:dd:ee:ff'], 8, 8);
-assert.strictEqual(a.source, 'perDevice:aa:bb:cc:dd:ee:ff', `uppercase MAC must hit the perDevice entry, got ${a.source}`);
-assert.strictEqual(b.source, a.source);
-assert.strictEqual(c.source, a.source);
-assert.deepStrictEqual(a.uplight, CORNERS);
-assert.deepStrictEqual(b.uplight, a.uplight);
-assert.deepStrictEqual(c.uplight, a.uplight);
-ok('a stored perDevice override resolves from uppercase, colon-less and lowercase keys');
-assert.strictEqual(seeded.forDevice(['192.168.1.199']).source, 'global', 'an unknown IP still falls back to global');
-assert.strictEqual(seeded.forDevice(['192.168.1.50', 'AA:BB:CC:DD:EE:FF']).source, 'perDevice:aa:bb:cc:dd:ee:ff', 'first matching key wins');
-ok('forDevice still matches an IPv4 key verbatim and keeps first-hit order');
-
-// The settings schema must offer NO geometry knob — the split is a constant verified on
-// hardware — while still describing the two things a user can actually set.
+// The settings screen offers exactly the five keys a buyer can set — and its header states
+// the geometry is the corner model rather than pointing at something to edit.
 const schema = require('../config.schema.json');
-assert.ok(!('uplightRegion' in schema.schema.properties), 'uplightRegion must not be in the schema');
-assert.ok(!('downlightRegion' in schema.schema.properties), 'downlightRegion must not be in the schema');
-assert.ok(!/uplightRegion|downlightRegion/.test(JSON.stringify(schema)), 'no region knob anywhere in the schema');
-assert.ok('mappingFile' in schema.schema.properties, 'mappingFile stays available as the repair hatch');
-assert.match(schema.schema.properties.mappingFile.description, /perDevice/, 'mappingFile must mention perDevice overrides');
+assert.deepStrictEqual(Object.keys(schema.schema.properties).sort(), ['aliases', 'discoveryInterval', 'kelvinMax', 'kelvinMin', 'name'], 'the schema must advertise exactly five keys');
+assert.strictEqual(schema.singular, true, 'two LifxCeiling platforms would mint identical mac:half UUIDs for one fixture');
 assert.match(schema.headerDisplay, /corner cells/i);
 assert.match(schema.headerDisplay, /DHCP reservation/i);
-assert.strictEqual(schema.singular, true, 'two LifxCeiling platforms would mint identical ip:half UUIDs for one fixture');
 assert.ok(!/untested guess/i.test(schema.headerDisplay), 'headerDisplay must not call the shipped model a guess');
-ok('config.schema.json ships no region knob and keeps mappingFile as the repair hatch');
+ok('config.schema.json advertises exactly the five keys a buyer can set');
 
 // Same guard for the user-facing docs: the published package describes the product,
 // not somebody's house. The pattern itself lives in the whole-package scan further down
@@ -162,50 +94,6 @@ const readme = fs.readFileSync(require('path').join(__dirname, '..', 'README.md'
 assert.match(readme, /DHCP reservation/i);
 assert.match(readme, /ack_required/i);
 ok('README.md is generic and states the corner model, ack rule and reservation requirement');
-
-const byIP = new Mapping(require('path').join(tmp, 'ip.json'), () => {});
-byIP.setDevice('192.168.1.50', 'core', 'ring');
-assert.strictEqual(byIP.forDevice(['192.168.1.50']).source, 'perDevice:192.168.1.50');
-byIP.setDevice('255.255.255.255', 'core', 'ring'); // twelve decimal digits, still an IP
-assert.strictEqual(byIP.forDevice(['255.255.255.255']).source, 'perDevice:255.255.255.255');
-assert.strictEqual(byIP.forDevice(['aabbccddeeff']).source, 'global', 'a MAC must never match an IP key');
-ok('IP keys are stored and matched verbatim, never read as 12-hex MACs');
-
-const canon = new Mapping(require('path').join(tmp, 'canon.json'), () => {});
-canon.setDevice('AA:BB:CC:DD:EE:FF', 'core', 'ring');
-assert.deepStrictEqual(Object.keys(canon.data.perDevice), ['aa:bb:cc:dd:ee:ff'], 'setDevice canonicalises the key');
-assert.ok(canon.save());
-const recol = new Mapping(require('path').join(tmp, 'canon.json'), () => {});
-assert.deepStrictEqual(Object.keys(recol.data.perDevice), ['aa:bb:cc:dd:ee:ff']);
-assert.strictEqual(recol.forDevice(['AABBCCDDEEFF']).source, 'perDevice:aa:bb:cc:dd:ee:ff');
-ok('setDevice/save write canonical lowercase-hex keys that any input format still resolves');
-assert.throws(() => m.setGlobal('all', 'core'), /overlap/);
-ok('Mapping refuses to save an invalid mapping');
-m.setGlobal([0, 1, 2], matrix.complement([0, 1, 2], 8, 8));
-assert.deepStrictEqual(m.invert().uplight, matrix.complement([0, 1, 2], 8, 8));
-ok('Mapping.invert swaps the global regions and keeps full coverage');
-// radial geometry — the fixture is round, so the seam must be a circle
-assert.deepStrictEqual(matrix.discIndices(8, 8, 0.75).concat(matrix.annulusIndices(8, 8, 0.75)).sort((a, b) => a - b), matrix.allIndices(8, 8));
-ok('disc + annulus are exhaustive for every radius');
-for (const t of matrix.SEAM_CANDIDATES) {
-  const d = matrix.discIndices(8, 8, t);
-  const a = matrix.annulusIndices(8, 8, t);
-  assert.strictEqual(d.filter((i) => a.includes(i)).length, 0, `disc/annulus overlap at t=${t}`);
-  assert.strictEqual(d.length + a.length, 64, `t=${t} does not cover 64`);
-}
-ok('all seam candidates are disjoint and exhaustive');
-assert.strictEqual(matrix.cellRadius(0, 0, 8, 8) > 1.4, true);
-ok('corner cell radius exceeds 1.4 (physically outside the round fixture)');
-assert.ok(Math.abs(matrix.cellRadius(0, 3, 8, 8) - 1.0) < 0.02);
-ok('edge-midpoint cell radius is ~1.0 (straddles the rim)');
-assert.ok(matrix.discIndices(8, 8, 0.62).length < matrix.discIndices(8, 8, 0.88).length);
-ok('a smaller seam radius yields a smaller downlight disc');
-assert.deepStrictEqual(matrix.indicesForRegion('disc@0.75', 8, 8), matrix.discIndices(8, 8, 0.75));
-ok('parses disc@t region strings');
-assert.throws(() => matrix.indicesForRegion('disc@9', 8, 8), /bad radius/);
-ok('rejects a nonsense radius');
-assert.deepStrictEqual(matrix.indicesForRegion('ring', 8, 8).length, 28);
-ok('legacy ring/core still resolve');
 
 // capability-based detection — the bug that created dead lights
 const { isCeiling, hasMatrix } = require('../lib/platform');
@@ -301,7 +189,7 @@ const fakeDevice = {
   lightGetPower: async () => ({ level: 1 }),
   getLightState: async () => ({ power: 1, color: { hue: 0, saturation: 0, brightness: 0.5, kelvin: 3000 } }),
 };
-const plat = new LifxCeilingPlatform(fakeLog, { mappingFile: require('path').join(tmp, 'm2.json') }, fakeApi);
+const plat = new LifxCeilingPlatform(fakeLog, {}, fakeApi);
 plat.lifx = { discover: async () => [fakeDevice], destroy: () => {} };
 await plat.discover();
 assert.deepStrictEqual(calls.register, [[PLUGIN_ID, PLATFORM_NAME, 2]], `expected one 3-arg register with 2 lights, got ${JSON.stringify(calls.register)}`);
@@ -387,7 +275,6 @@ plat.shutdown();
 // had no handlers bound. Home.app tiles were wired to dead characteristics. discover()
 // must rebind the restored object and register nothing.
 {
-  const path = require('path');
   const mkDevice = (ip, mac) => {
     const w = { tiles: [], power: [] };
     return {
@@ -419,7 +306,7 @@ plat.shutdown();
     const { api, calls } = fakeHarness();
     const { log, lines } = recLog();
     const { device, w } = mkDevice('192.168.1.50', 'D0:52:50:AA:BB:CC');
-    const plat = new LifxCeilingPlatform(log, { mappingFile: path.join(tmp, 'reuse.json') }, api);
+    const plat = new LifxCeilingPlatform(log, {}, api);
     plat.lifx = { discover: async () => [device], destroy: () => {} };
     const up = restored('up', 'Test Ceiling Uplight'); const down = restored('down', 'Test Ceiling Downlight');
     plat.configureAccessory(up); plat.configureAccessory(down);
@@ -453,7 +340,7 @@ plat.shutdown();
     const { api, calls } = fakeHarness();
     const { log, lines } = recLog();
     const { device } = mkDevice('192.168.1.50', 'D0:52:50:AA:BB:CC');
-    const plat = new LifxCeilingPlatform(log, { mappingFile: path.join(tmp, 'mint.json') }, api);
+    const plat = new LifxCeilingPlatform(log, {}, api);
     plat.lifx = { discover: async () => [device], destroy: () => {} };
     await plat.discover();
     assert.deepStrictEqual(calls.register, [[PLUGIN_ID, PLATFORM_NAME, 2]], 'no cache must still mint+register two lights per ceiling');
@@ -469,7 +356,7 @@ plat.shutdown();
     const { api, calls } = fakeHarness();
     const { log, lines } = recLog();
     const { device } = mkDevice('192.168.1.50', 'D0:52:50:AA:BB:CC');
-    const plat = new LifxCeilingPlatform(log, { mappingFile: path.join(tmp, 'mixed.json') }, api);
+    const plat = new LifxCeilingPlatform(log, {}, api);
     plat.lifx = { discover: async () => [device], destroy: () => {} };
     const up = restored('up', 'Test Ceiling Uplight');
     plat.configureAccessory(up);
@@ -495,7 +382,7 @@ plat.shutdown();
     const { api, calls } = fakeHarness();
     const { log, lines } = recLog();
     const { device, w } = mkDevice('192.168.1.50', 'D0:52:50:AA:BB:CC');
-    const plat = new LifxCeilingPlatform(log, { mappingFile: path.join(tmp, 'legacyid.json') }, api);
+    const plat = new LifxCeilingPlatform(log, {}, api);
     plat.lifx = { discover: async () => [device], destroy: () => {} };
     const old = new FakeAccessory('Test Ceiling Uplight', 'legacy-uuid-not-a-stableid');
     old.context = { mac: '192.168.1.50', half: 'up' }; // predates stableId
@@ -546,7 +433,7 @@ const fxDevice = {
   getLightState: async () => ({ power: 0, color: { hue: 0, saturation: 0, brightness: 0, kelvin: 3000 } }),
   lightGetPower: async () => ({ level: 0 }),
 };
-const fx = new Fixture({ device: fxDevice, mapping: new Mapping(require('path').join(tmp, 'f.json'), () => {}), log: () => {} });
+const fx = new Fixture({ device: fxDevice, log: () => {} });
 fx.set('up', { on: true, brightness: 1, hue: 0, saturation: 100 });
 fx.set('down', { on: false });
 await new Promise((r) => setTimeout(r, 200));
@@ -577,16 +464,15 @@ assert.strictEqual(req.address, '192.168.1.50');
 ok('tile request targets the fixture MAC and address');
 
 // HARDWARE SHAPE: discovered devices carry `mac` UPPERCASE colon-separated and NO
-// deviceInfo.mac — this is the shape that made both the mapping and the UUID dead.
+// deviceInfo.mac — this is the shape that made a MAC-keyed lookup and the UUID dead.
 const macOnlyDevice = Object.assign({}, fxDevice, { mac: 'AA:BB:CC:DD:EE:FF' });
 delete macOnlyDevice.deviceInfo;
-const macOnly = new Fixture({ device: macOnlyDevice, mapping: new Mapping(require('path').join(tmp, 'mac.json'), () => {}), log: () => {} });
+const macOnly = new Fixture({ device: macOnlyDevice, log: () => {} });
 assert.strictEqual(macOnly.mac, 'aabbccddeeff', `fixture.mac must be the canonical hardware MAC, got ${macOnly.mac}`);
 assert.strictEqual(macOnly.mac, matrix.normalizeMac('AA:BB:CC:DD:EE:FF'));
-assert.notStrictEqual(macOnly.mac, macOnly.ip, 'the mapping key must never silently become an IP');
+assert.notStrictEqual(macOnly.mac, macOnly.ip, 'the identity key must never silently become an IP');
 assert.strictEqual(macOnly._targetMac(), 'AA:BB:CC:DD:EE:FF', 'the V2 target must stay the uppercase wire form, verbatim');
-assert.strictEqual(seeded.forDevice([macOnly.mac, macOnly.ip], 8, 8).source, 'perDevice:aa:bb:cc:dd:ee:ff');
-ok('the canonical MAC is the mapping key while the wire target stays uppercase');
+ok('the canonical MAC is the identity key while the wire target stays uppercase');
 
 fx.set('up', { on: false });
 await new Promise((r) => setTimeout(r, 200));
@@ -601,7 +487,7 @@ ok('follow-up flush sends exactly one more composed tile request');
   const rejDevice = Object.assign({}, fxDevice, {
     _lifxLanUdp: { request: async () => ({ header: { type: 223 } }) },
   });
-  const rej = new Fixture({ device: rejDevice, mapping: new Mapping(require('path').join(tmp, 'r.json'), () => {}), log: () => {} });
+  const rej = new Fixture({ device: rejDevice, log: () => {} });
   await assert.rejects(() => rej.flush(), /rejected.*service 223/);
   ok('a svc 223 rejection makes flush() reject');
   rej.destroy();
@@ -612,8 +498,7 @@ fx.destroy();
 // HomeKit mired limits, so Home.app cannot offer a white the panel cannot produce.
 {
   const fxK = new Fixture({
-    device: fxDevice, mapping: new Mapping(require('path').join(tmp, 'k.json'), () => {}),
-    log: () => {}, kelvinMin: 2000, kelvinMax: 6500,
+    device: fxDevice, log: () => {}, kelvinMin: 2000, kelvinMax: 6500,
   });
   fxK.state.down = { on: true, hue: 0, saturation: 0, brightness: 1, kelvin: 9000 };
   assert.strictEqual(fxK._deviceColor('down').kelvin, 6500, 'kelvinMax must clamp the frame');
@@ -621,10 +506,10 @@ fx.destroy();
   fxK.state.down.kelvin = 1000;
   assert.strictEqual(fxK._deviceColor('down').kelvin, 2000, 'kelvinMin must clamp the frame');
   ok('kelvinMin clamps the commanded frame');
-  const def = new Fixture({ device: fxDevice, mapping: new Mapping(require('path').join(tmp, 'k2.json'), () => {}), log: () => {} });
+  const def = new Fixture({ device: fxDevice, log: () => {} });
   assert.strictEqual(def.kelvinMin, 1500); assert.strictEqual(def.kelvinMax, 9000);
   ok('kelvin range defaults to the panel span when unset');
-  const swapped = new Fixture({ device: fxDevice, mapping: new Mapping(require('path').join(tmp, 'k3.json'), () => {}), log: () => {}, kelvinMin: 6500, kelvinMax: 2000 });
+  const swapped = new Fixture({ device: fxDevice, log: () => {}, kelvinMin: 6500, kelvinMax: 2000 });
   assert.ok(swapped.kelvinMin < swapped.kelvinMax, 'inverted min/max must be swapped, never produce an empty range');
   ok('an inverted kelvin range is repaired, not propagated');
   fxK.destroy(); def.destroy(); swapped.destroy();
@@ -664,7 +549,7 @@ fx.destroy();
   const caps = new RegExp('W' + 'INS');
   const dirs = ['lib', 'bin', 'test', '.github'];
   const hits = [];
-  assert.ok(!fs2.existsSync(root + '/config'), 'the package must ship no config/ directory — no mapping data file ships');
+  assert.ok(!fs2.existsSync(root + '/config'), 'the package must ship no config/ directory — the geometry is compiled in');
   // The development harness does not ship: RTSP capture scripts and the Python image
   // measurement tools were how *we* looked at a ceiling while reverse-engineering it.
   // An end user verifies by looking at the fixture, and a stranger has no camera
@@ -689,39 +574,37 @@ fx.destroy();
   ok('no shipped file leaks a site-specific address, MAC or room name');
 }
 
-// THE GEOMETRY IS NOT CONFIGURABLE (the change): earlier versions of this schema
-// advertised uplightRegion/downlightRegion, and a leftover "ring"/"core" pair in a live
-// config.json was a real footgun — the square-perimeter model is disproven on this
-// hardware. The knobs are gone; the platform must ignore them and keep the corners.
+
+// THE GEOMETRY IS NOT CONFIGURABLE (the change): earlier versions of this package shipped
+// a region-mapping module, a schema key that pointed at a file of them, and names an old
+// config.json could still carry. All of it is gone, so the guard is structural: the platform
+// holds no mapping object at all, ignores keys it does not read, and logs the compiled-in
+// corners on every boot. Patterns are assembled from fragments so this file does not match
+// its own scan.
 {
   const path = require('path');
-  const f = path.join(tmp, 'no-such-mapping.json');
-  const logs = [];
-  const log = Object.assign((m) => logs.push(String(m)), {
-    error: (m) => logs.push(String(m)), warn: (m) => logs.push(String(m)), info: (m) => logs.push(String(m)),
-  });
-  const platform = new LifxCeilingPlatform(log, {
-    uplightRegion: 'ring', downlightRegion: 'core', // exactly what an old install leaves behind
-    mappingFile: f,
-  }, fakeApi);
-  assert.deepStrictEqual(platform.mapping.data.uplight, CORNERS, 'a leftover uplightRegion must not move the geometry');
-  assert.deepStrictEqual(platform.mapping.data.downlight, matrix.complement(CORNERS, 8, 8), 'a leftover downlightRegion must not move the geometry');
-  assert.ok(!logs.some((l) => /applied/i.test(l)), 'nothing may be applied from a region knob');
-  assert.match(logs.join('\n'), /uplight=4 corner cells \[0,7,56,63\]/, 'startup logs the geometry in force');
-  assert.ok(!fs.existsSync(f), 'a missing mappingFile is normal and must not be created');
+  const cfg = {};
+  cfg[['uplight', 'Region'].join('')] = 'rin' + 'g';
+  cfg[['downlight', 'Region'].join('')] = 'cor' + 'e';
+  const ghost = path.join(os.tmpdir(), 'lifx-no-such-file.json');
+  cfg[['mapping', 'File'].join('')] = ghost;
+  const { log, lines } = recLog();
+  const platform = new LifxCeilingPlatform(log, cfg, fakeApi);
+  assert.ok(!('mapping' in platform), 'the platform holds no mapping object — there is nothing to override');
+  assert.deepStrictEqual(matrix.CEILING_UPLIGHT_CELLS, CORNERS, 'a leftover knob must not move the geometry');
+  assert.deepStrictEqual(matrix.ceilingsDownlightCells(8, 8), matrix.complement(CORNERS, 8, 8), 'nor may it move the other half');
+  assert.ok(!lines.some((l) => /applied/i.test(l)), 'nothing may be applied from a key the code does not read');
+  assert.match(lines.join('\n'), /uplight=4 corner cells \[0,7,56,63\]/, 'startup logs the geometry in force');
+  assert.ok(!fs.existsSync(ghost), 'a config value pointing at a file must not make the plugin create or read it');
+  platform.shutdown();
 
   const rm = fs.readFileSync(path.join(__dirname, '..', 'README.md'), 'utf8');
-  // The names may appear only as a migration note, never as something you can set:
-  // no fenced example and no config-table row may offer them.
-  const fences = rm.match(/```[\s\S]*?```/g) || [];
-  assert.ok(!fences.some((f) => /uplightRegion|downlightRegion/.test(f)), 'README must not show region knobs in any example');
-  assert.ok(!(rm.split('\n').filter((l) => l.startsWith('|')).some((l) => /uplightRegion|downlightRegion/.test(l))), 'README config table must not list region knobs');
-  assert.match(rm, /no\s+longer\s+read/i, 'README must say the old knobs are inert');
   assert.match(rm, /not configurable/i, 'README must say the geometry is not configurable');
-  assert.match(rm, /perDevice/, 'README must document the repair hatch');
-  assert.match(rm, /^mapping: uplight=4 corner cells \[0,7,56,63\]/m, 'README must show the startup line');
-  ok('leftover ring/core config is inert, the corner model stays in force, README matches');
+  assert.match(rm, /unsupported/i, 'README must say other matrix products are unsupported');
+  assert.match(rm, /^geometry: uplight=4 corner cells \[0,7,56,63\]/m, 'README must show the startup line');
+  ok('leftover knobs are inert, the corner model is the only geometry, README matches');
 }
+
 
 // NO TILE WRITE MAY BE SILENT: on pid 176/177 an un-acked TileSetTileState64 can
 // vanish with no error and no visible change, so every shipped file that writes tiles
@@ -746,8 +629,7 @@ fx.destroy();
     }
   }
   assert.deepStrictEqual(offenders, [], `these files write tiles without an ack-required path: ${offenders.join(', ')}`);
-  assert.ok(/writeTileAcked/.test(fs3.readFileSync(path3.join(root3, 'bin', 'all-red.js'), 'utf8')), 'all-red.js must go through lib/tilewrite.js');
-  assert.ok(/writeTileAcked/.test(fs3.readFileSync(path3.join(root3, 'bin', 'calibrate.js'), 'utf8')), 'calibrate.js must go through lib/tilewrite.js');
+  assert.ok(/writeTileAcked/.test(fs3.readFileSync(path3.join(root3, 'bin', 'doctor.js'), 'utf8')), 'bin/doctor.js must go through lib/tilewrite.js');
   assert.ok(/ack_required:\s*true/.test(fs3.readFileSync(path3.join(root3, 'lib', 'tilewrite.js'), 'utf8')), 'lib/tilewrite.js must send ack_required:true');
   assert.ok(/service 223|REJECTION/.test(fs3.readFileSync(path3.join(root3, 'lib', 'tilewrite.js'), 'utf8')), 'lib/tilewrite.js must treat svc 223 as a failure');
   ok('every shipped tile write is ack-required, with 223 handled as failure');
@@ -876,7 +758,93 @@ fx.destroy();
   ok('publish surface: docs, schema and package metadata match what the code does');
 }
 
-fs.rmSync(tmp, { recursive: true, force: true });
+
+// NO SCAFFOLDING CREeps BACK: the lab tools, the removed module, the radial API, the
+// extra schema keys and the vocabulary that described them are all out of the published
+// package. This guard is what keeps them out.
+{
+  const fs6 = require('fs');
+  const path6 = require('path');
+  const root6 = path6.join(__dirname, '..');
+
+  // 1. bin/ is exactly doctor.js — one diagnostic, nothing else.
+  assert.deepStrictEqual(fs6.readdirSync(path6.join(root6, 'bin')), ['doctor.js'], 'bin/ must contain exactly doctor.js');
+  ok('bin/ contains exactly doctor.js');
+
+  // 2. no mapping module, and nothing requires one.
+  assert.ok(!fs6.existsSync(path6.join(root6, 'lib', 'mapping.js')), 'lib/mapping.js must not exist');
+  const modName = ['map', 'ping'].join('');
+  const reqPat = new RegExp('require\\([^)]*' + modName);
+  const requiring = [];
+  for (const d of ['lib', 'bin']) {
+    for (const f of fs6.readdirSync(path6.join(root6, d))) {
+      if (!f.endsWith('.js')) continue;
+      if (reqPat.test(fs6.readFileSync(path6.join(root6, d, f), 'utf8'))) requiring.push(d + '/' + f);
+    }
+  }
+  if (reqPat.test(fs6.readFileSync(path6.join(root6, 'index.js'), 'utf8'))) requiring.push('index.js');
+  assert.deepStrictEqual(requiring, [], `these files still require the removed module: ${requiring.join(', ')}`);
+  ok('no shipped .js requires the removed module');
+
+  // 3. the radial API is gone from lib/matrix.js, not merely unused.
+  for (const gone of ['resolveRegion', 'ring' + 'Indices', 'core' + 'Indices', 'ann' + 'ulusIndices']) {
+    assert.strictEqual(matrix[gone], undefined, `matrix.${gone} must not be exported`);
+  }
+  ok('matrix exports no radial API');
+
+  // 4. the schema is exactly the five keys.
+  assert.deepStrictEqual(Object.keys(require('../config.schema.json').schema.properties).sort(),
+    ['aliases', 'discoveryInterval', 'kelvinMax', 'kelvinMin', 'name'], 'exactly five config keys, no more');
+  ok('config.schema.json schema properties are exactly the five advertised keys');
+
+  // 5. symmetry: every key the code reads is advertised, and every advertised key is read.
+  // `name` is the one exception by design — Homebridge reads it to select the platform
+  // config block, our code never does, and every Homebridge plugin advertises it.
+  const readKeys = new Set();
+  // Strip comments first — the prose in these files talks about "config.json" constantly,
+  // and a doc mention is not a read of the config object.
+  const strip = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  const KEY = /\bconfig\.([A-Za-z_]\w*)\b/g;
+  for (const f of ['lib/platform.js', 'lib/fixture.js', 'index.js']) {
+    const txt = strip(fs6.readFileSync(path6.join(root6, f), 'utf8'));
+    for (const mo of txt.matchAll(KEY)) if (mo[1] !== 'json') readKeys.add(mo[1]);
+    for (const mo of txt.matchAll(/const\s*\{([^}]*)\}\s*=\s*(?:this\.)?config\b/g)) {
+      for (const nm of mo[1].split(',')) readKeys.add(nm.trim().split(':')[0].trim());
+    }
+  }
+  const HOMEKIT_OWNS = new Set(['name']);
+  const advertised = new Set(Object.keys(require('../config.schema.json').schema.properties));
+  assert.deepStrictEqual([...readKeys].filter((k) => !advertised.has(k)), [], 'the code reads a key the settings UI does not advertise');
+  assert.deepStrictEqual([...advertised].filter((k) => !readKeys.has(k) && !HOMEKIT_OWNS.has(k)), [], 'the settings UI advertises a key the code never reads');
+  assert.deepStrictEqual([...readKeys].sort(), ['aliases', 'discoveryInterval', 'kelvinMax', 'kelvinMin'], 'the readable set is the four behavioural knobs');
+  ok('every config key read by the code is advertised in the schema, and vice versa');
+
+  // 6. the vocabulary of the removed feature appears nowhere in the package.
+  // Assembled from fragments so this file does not match its own patterns.
+  const banned = [
+    ['ann', 'ulus'].join(''),
+    ['disc', '@'].join(''),
+    ['mapping', 'File'].join(''),
+    ['cal', 'ibrate'].join(''),
+    ['per', 'Device'].join(''),
+    ['uplight', 'Region'].join(''),
+  ];
+  const vocabHits = [];
+  const scanFile = (p, label) => {
+    const txt = fs6.readFileSync(p, 'utf8');
+    for (const b of banned) if (txt.includes(b)) vocabHits.push(`${label} names ${b}`);
+  };
+  for (const d of ['lib', 'bin', 'test']) {
+    for (const f of fs6.readdirSync(path6.join(root6, d))) {
+      if (fs6.statSync(path6.join(root6, d, f)).isFile()) scanFile(path6.join(root6, d, f), d + '/' + f);
+    }
+  }
+  for (const f of ['index.js', 'config.schema.json', 'README.md']) scanFile(path6.join(root6, f), f);
+  assert.deepStrictEqual(vocabHits, [], `the removed feature still speaks its name: ${vocabHits.join('; ')}`);
+  ok('no shipped file names the removed geometry scaffolding');
+}
+
+
 console.log(`\n${n} assertions passed.`);
 
   /*

@@ -8,8 +8,8 @@ body:
         The uplight/downlight split is compiled in as the four corner cells
         (`matrix.CEILING_UPLIGHT_CELLS = [0, 7, 56, 63]`), verified on four US
         pid 176 fixtures. If your halves land differently, do **not** edit the plugin —
-        use the per-fixture `mappingFile` and open a report here so the model can be
-        fixed in code for everyone.
+        there is no override to set, by design. Open a report here with the pid and what
+        lit up, and the model gets fixed in code for everyone.
   - type: input
     id: product
     attributes:

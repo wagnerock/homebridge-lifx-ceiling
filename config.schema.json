@@ -2,7 +2,7 @@
   "pluginAlias": "LifxCeiling",
   "pluginType": "platform",
   "singular": true,
-  "headerDisplay": "Split LIFX Ceiling uplight and downlight into two full-colour HomeKit lights. Local LAN control only \u2014 no LIFX cloud, no LIFX bridge.\n\n**Works out of the box:** install it, and every LIFX Ceiling on the LAN (vendor 1, pid 176 US / pid 177 Intl) appears as two lights \u2014 Uplight and Downlight \u2014 each with full colour, brightness and colour-temperature control.\n\n**The geometry is not configurable, on purpose.** On this product the uplight is driven by the **four corner cells** of the 8\u00d78 matrix \u2014 `0, 7, 56, 63` \u2014 and the downlight by the other 60. Confirmed on four separate fixtures by painting cells and reading the panel, so it is a constant in `lib/matrix.js` (`CEILING_UPLIGHT_CELLS`), not a setting. A coloured dot inside the panel means one cell mis-assigned on that fixture \u2014 see `mappingFile`.\n\n**Tile writes go out as service 715 with `ack_required: true`.** Un-acked frames vanish on this hardware with no error, so every write waits for its acknowledgement and treats service 223 as a failure.\n\n**DHCP reservations are no longer required.** Accessory identity is the fixture's hardware MAC, persisted in the accessory cache, so a fixture that renews onto a new address keeps the same UUID, name and room \u2014 only its transport moves. A reservation is still *nice*: the logs stay tidy and reconnects are marginally faster.",
+  "headerDisplay": "Split LIFX Ceiling uplight and downlight into two full-colour HomeKit lights. Local LAN control only \u2014 no LIFX cloud, no LIFX bridge.\n\n**Works out of the box:** install it, and every LIFX Ceiling on the LAN (vendor 1, pid 176 US / pid 177 Intl) appears as two lights \u2014 Uplight and Downlight \u2014 each with full colour, brightness and colour-temperature control.\n\n**The geometry is fixed, on purpose.** On this product the uplight is driven by the **four corner cells** of the 8\u00d78 matrix \u2014 `0, 7, 56, 63` \u2014 and the downlight by the other 60. Confirmed on four separate fixtures by painting cells and reading the panel, so it is a constant in `lib/matrix.js` (`CEILING_UPLIGHT_CELLS`) with nothing to configure: no file, no path, no per-fixture override. Other matrix products are unsupported, and that is a deliberate product decision, not a gap to fill. If a colour you sent to the uplight shows on the panel face, run `npm run doctor` and open a hardware report.\n\n**Tile writes go out as service 715 with `ack_required: true`.** Un-acked frames vanish on this hardware with no error, so every write waits for its acknowledgement and treats service 223 as a failure.\n\n**DHCP reservations are no longer required.** Accessory identity is the fixture's hardware MAC, persisted in the accessory cache, so a fixture that renews onto a new address keeps the same UUID, name and room \u2014 only its transport moves. A reservation is still *nice*: the logs stay tidy and reconnects are marginally faster.",
   "footerDisplay": "Both halves address the same physical fixture, so a fixture's power is only turned off when both halves are off.",
   "schema": {
     "type": "object",
@@ -23,12 +23,6 @@
           "minLength": 1,
           "maxLength": 32
         }
-      },
-      "mappingFile": {
-        "title": "Mapping file path",
-        "type": "string",
-        "required": false,
-        "description": "**Optional \u2014 repair only.** No file ships and none is needed: the verified corner model is compiled in. Set this to a JSON file of your own only if one fixture behaves differently, e.g. { \"perDevice\": { \"aa:bb:cc:dd:ee:ff\": { \"uplight\": [0, 7, 56, 63], \"downlight\": [ \u2026 60 indices \u2026 ] } } }. Keys are matched by normalised MAC, so case and separators do not matter; a `perDevice` entry outranks the file's global `uplight`/`downlight`, which outranks the built-in default. Anything that puts a lit cell inside the panel face shows up as visible dots \u2014 move that index into the other list instead of widening a radius."
       },
       "kelvinMin": {
         "title": "Minimum colour temperature (K)",

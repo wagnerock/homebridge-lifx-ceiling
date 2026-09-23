@@ -3,6 +3,36 @@
 All notable changes. Dates are the day the change went live on real hardware, not the
 day it was typed — everything here was verified against four LIFX Ceilings before release.
 
+## 1.2.0 — one geometry, compiled in; the lab goes out of the package
+
+Built for the person who buys a LIFX Ceiling and wants two lights in Home.app. Everything
+that could select a different — or a wrong — geometry is gone from the published plugin.
+
+- **Removed `lib/mapping.js` and the `mappingFile` config key.** There is no file, no path
+  and no per-fixture override for the half split any more. The geometry comes from
+  `matrix.CEILING_UPLIGHT_CELLS` (`[0, 7, 56, 63]`) and `matrix.ceilingsDownlightCells()`
+  and from nothing else. A setting whose only failure mode is a wrongly painted room with no
+  undo is not a feature, and the schema no longer offers one: the five keys are `name`,
+  `aliases`, `kelvinMin`, `kelvinMax`, `discoveryInterval`.
+- **Removed the radial code from `lib/matrix.js`** — radius maths, disc/complement masks,
+  seam-radius scanning, region parsing and region validation. The model is disproven on this
+  hardware (it lands colour on downlight LEDs); the code that could select it is deleted, and
+  what remains is the corner model verified by eye on four fixtures.
+- **The calibration and probe tools no longer ship.** `bin/` is `doctor.js` only, and
+  `package.json` publishes `bin/doctor.js` by name. `calibrate.js`, `region-color.js`,
+  `split-color.js`, `all-red.js`, `restore.js`, `identify.js`, `state-read.js`, `diag.js`,
+  `tileack.js`, `live-fixture.js` and `mapping.js` moved to the estate repo's
+  `tools/lifx-lab/` — they stay as the archaeology that proves the corner model, out of the
+  install path. An end user verifies by looking at the fixture and diagnoses with
+  `npm run doctor`.
+- Other matrix products are **unsupported by decision, not by omission**: anything the corner
+  model does not describe is skipped at discovery, and the docs say so.
+
+Unchanged, and still tested: hardware-MAC identity (`<mac>:<half>`, reuse by `context.hwMac`,
+`rebindDevice`, preserved Lightbulb subtype), `aliases`, never unregistering a light because
+discovery went quiet, unicast liveness probing, ack-required svc-715 writes with svc 223 as a
+failure, power before matrix, and no `config/` directory in the package.
+
 ## 1.1.0 — identity is the hardware MAC
 - **Accessory identity moved from the fixture IP to the hardware MAC.** `stableId` is now
   `<mac>:<half>` and the UUID is minted from that; the IP is transport state held on the

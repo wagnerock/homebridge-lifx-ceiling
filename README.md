@@ -54,20 +54,13 @@ uplight  = cells 0, 7, 56, 63          # the four corners
 downlight = the other 60 cells
 ```
 
-That split is compiled in as a constant — `CEILING_UPLIGHT_CELLS` in `lib/matrix.js` — so the plugin works out of the box on this model with no configuration. It is not a guess and you should not try to "calibrate it away": if a colour you commanded to the uplight shows up on the panel face, that is one cell mis-assigned on that fixture, and the fix is the per-fixture repair file below — not a radial mask.
+That split is compiled in as a constant — `CEILING_UPLIGHT_CELLS` in `lib/matrix.js` — so the plugin works out of the box on this model with no configuration. It is not a guess and there is nothing to tune: if a colour you commanded to the uplight shows up on the panel face, that is a bug to report, not a knob to turn.
 
-Two earlier models were tried on real fixtures and are **wrong**:
+Two earlier models were tried on these fixtures and are **wrong**: both drew the boundary by radius or by perimeter, and both landed colour on downlight LEDs — first as red at the edge midpoints, then as distinct dots *inside* the panel face. They failed for the same reason: the 8×8 grid is a square matrix mounted behind a round fixture, so any radial boundary snaps to a blocky rounded square and always catches a few panel cells. Corner cells have no such ambiguity — each cell is in exactly one half.
 
-| model | what it claimed | what happened on the fixture |
-|---|---|---|
-| `ring` / `core` | the perimeter is the uplight | red landed on downlight LEDs at the edge midpoints |
-| `annulus@0.88` / `disc@0.88` | a chamfered ring outside r=0.88 | red appeared as distinct dots *inside* the panel face |
+**There is no optical bleed between the halves.** A cell belongs to one half and lights only there. That is what makes this debuggable by eye: contamination is always a wrong cell, never diffusion.
 
-Both failed for the same reason: they put cells inside the panel face in `uplight`. The 8×8 grid is a square matrix mounted behind a round fixture, so any radial threshold snaps to a blocky rounded square and always catches a few panel cells. Corner cells have no such ambiguity — each cell is in exactly one half.
-
-**There is no optical bleed between the halves.** A cell belongs to one half and lights only there. That is what makes this debuggable by eye: contamination is always a mapping error, never diffusion.
-
-**Verify by looking at the fixture.** `tileGetTileState64` read-back proves only what is in the fixture's *buffer*, not what lit up. A write can be accepted and still paint cells you did not intend, and a frame can be in the buffer while the panel is dark. The only proof is a photograph or your own eyes on the lit fixture — which is exactly what `bin/calibrate.js` asks you for.
+**Verify by looking at the fixture.** `tileGetTileState64` read-back proves only what is in the fixture's *buffer*, not what lit up. A write can be accepted and still paint cells you did not intend, and a frame can be in the buffer while the panel is dark. The only proof is a photograph or your own eyes on the lit fixture.
 
 ## Tile writes require `ack_required: true`
 
@@ -110,7 +103,6 @@ it either.
 |---|---|---|
 | `name` | `LIFX Ceilings` | platform name |
 | `aliases` | unset — tiles are named from the fixture's own LIFX label | **site-local short names**, keyed by MAC: `{ "aa:bb:cc:dd:ee:ff": "SW" }` publishes `SW Uplight` and `SW Downlight`. Case and `:` separators in the key are free; a MAC survives an IP change, so it beats keying by address. A key that is not a MAC is refused with a named warning. See "Naming" below |
-| `mappingFile` | unset | **optional, repair only** — path to your own mapping file for a fixture that behaves differently. See "Repairing one fixture" |
 | `discoveryInterval` | `300` | seconds between discovery cycles (minimum 60) |
 | `kelvinMin` / `kelvinMax` | `1500` / `9000` | white range the fixture may use. Clamped in software *and* published to HomeKit as the colour-temperature limits, so Home.app will not offer a white the panel cannot make |
 
@@ -134,65 +126,26 @@ to the Living room room`) or long-press → Move to Room in Home.app.
 
 ### The geometry is not configurable — on purpose
 
-Earlier versions of this schema offered `uplightRegion` and `downlightRegion`. They are
-**gone**, and they will not do anything if you leave them in `config.json` — the code no
-longer reads them. That is deliberate: the geometry above is a property of the product,
-verified on four separate fixtures, and a wrong pair of lists repaints the room with no
-undo. A setting that can only be wrong is not a feature.
+The uplight/downlight split is a property of the product, not a preference: **cells
+0, 7, 56, 63 are the uplight, the other 60 are the downlight panel**, compiled in as
+`CEILING_UPLIGHT_CELLS` in `lib/matrix.js`. There is no schema key, no file, no path
+and no per-fixture override that can move it. That is deliberate — the split was settled
+on four separate fixtures by painting each half a different colour and looking at the
+panel, and a setting whose only failure mode is a wrongly painted room with no undo is not
+a feature.
 
-Every boot prints one line naming what is in force:
+Every boot prints one line naming what is in force, and it is always the same line:
 
 ```
-mapping: uplight=4 corner cells [0,7,56,63] downlight=60 cells source=default
+geometry: uplight=4 corner cells [0,7,56,63] downlight=60 cells (fixed for pid 176/177)
 ```
 
-`source` is `default` (the compiled-in corners) or `mappingFile` when you supply the
-file below.
-
-### Repairing one fixture
-
-The only override is a mapping file you point at with `mappingFile`. No file ships and
-none is needed; use it when *one* ceiling differs — a swapped cell, or a firmware that
-lights something else:
-
-```json
-{
-  "perDevice": {
-    "aa:bb:cc:dd:ee:ff": {
-      "uplight": [0, 7, 56, 63],
-      "downlight": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62]
-    }
-  }
-}
-```
-
-- Keys are matched by **normalised MAC**, so upper/lower case and `:` separators all hit.
-- `perDevice` outranks the file's global `uplight`/`downlight`, which outrank the built-in default.
-- If a commanded uplight colour shows up as distinct dots *inside the panel*, one or more panel cells are in the `uplight` list — move those indices to `downlight`. Do not widen a radius.
-- An unreadable or malformed file is logged and ignored: the fixture keeps working on the built-in corners.
-
-If you had `mappingFile` set to the file this plugin used to ship, you can delete the key.
-
-### The mapping file (reference)
-
-```json
-{
-  "uplight": [0, 7, 56, 63],
-  "downlight": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62],
-  "perDevice": {
-    "aa:bb:cc:dd:ee:ff": {
-      "uplight": [0, 7, 56, 63],
-      "downlight": [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62]
-    }
-  }
-}
-```
-
-- `uplight` / `downlight` must not overlap and must together cover all 64 cells, or the mapping is refused with a precise error.
-- **Use explicit index arrays.** `ring`, `core`, `disc@t` and `annulus@t` still parse, because `bin/calibrate.js` needs them to sweep a seam on a fixture nobody has documented — but they are the *disproven* model on this product: they put colour inside the panel face, and on the LIFX Ceiling that paints magenta across downlight LEDs you cannot un-ring. If your fixture is a LIFX Ceiling, the shape is `[0, 7, 56, 63]` and you should not need to write a mapping file at all.
-- `perDevice` keys are MACs (preferred — MACs survive an IP change within one Homebridge install) or IPs. Keys are canonicalised to lowercase colon form, and any input shape (`AA:BB:CC:DD:EE:FF`, `aabbccddeeff`, `aa:bb:cc:dd:ee:ff`) resolves to the same fixture. IPv4 keys are matched verbatim and never mistaken for MACs.
-- Your fixtures' addresses belong in *your* mapping file, never in the published package: set `mappingFile` to a path outside the plugin directory.
-- The mapping is read once at startup. Restart Homebridge after editing it.
+**Other matrix products are unsupported.** This plugin models the LIFX Ceiling
+(vendor 1, pid 176 US / pid 177 Intl) and nothing else; a matrix product it cannot model is
+skipped at discovery rather than guessed at. That is a product decision, not a TODO. If you
+want another product supported, open a hardware report with its pid and a photograph of what
+lit up — `npm run doctor` prints both — and the geometry gets written into code and verified
+for everyone.
 
 ## Diagnostics
 
@@ -201,30 +154,19 @@ npm run doctor            # versions, private-API presence, discovery, unicast, 
 node bin/doctor.js 192.168.1.50
 ```
 
-`doctor` reports the installed `node-lifx-lan-multi` version and whether its private
-`_lifxLanUdp.request` is still there — the API the ack-required tile write depends on. If
-a future release removes it, tile writes silently fall back to un-acked, and this is the
-command that tells you. The svc-715 check rewrites each fixture's *current* colours, so
-the room looks exactly as it did while it runs.
-
-Every tool in `bin/` is run with `node bin/<tool>.js <fixture>`.
-
-## Calibration
-
-These are the reason this plugin works on hardware nobody documented. Everything takes the fixture address as an argument; nothing has your address baked in.
-
-```bash
-node bin/calibrate.js 192.168.1.50              # interactive: which half went red?
-node bin/calibrate.js 192.168.1.50 --answer up  # non-interactive
-node bin/calibrate.js --invert                    # flip the current global mapping
-```
-
-`bin/calibrate.js` paints two colours, holds them long enough to see, records the answer, and restores your original colour and power in a `finally` block.
+`doctor` is the one diagnostic this plugin ships. It reports the installed
+`node-lifx-lan-multi` version and whether its private `_lifxLanUdp.request` is still there —
+the API the ack-required tile write depends on. If a future release removes it, tile writes
+silently fall back to un-acked, and this is the command that tells you. It prints the
+geometry in force, checks that each ceiling answers broadcast and then a unicast request aimed
+at it, and finishes with one acked svc-715 round-trip per ceiling that rewrites each
+fixture's *current* colours — so the room looks exactly as it did while it runs. Non-ceiling
+products are skipped by pid and by an empty tile chain, and a missing global `homebridge`
+module is reported as INFO, because a plugin is installed as a dependency *of* Homebridge.
 
 **Look at the fixture.** Paint one half red and the other blue, then walk in and see which
-half is which — that single observation is what settled the geometry here, and it is all the
-instrumentation calibration needs. Ask a phone to film it if you want the evidence, but the
-plugin cannot see your ceiling and does not try to.
+half is which — that single observation is what settled the geometry here. The plugin cannot
+see your ceiling and does not try to.
 
 ## Compatibility
 
@@ -247,23 +189,23 @@ plugin cannot see your ceiling and does not try to.
 ## Known limitations
 
 - **Manual changes made elsewhere are not auto-detected.** HomeKit state is served from an in-memory cache (a side effect of the two-half architecture — Homebridge must answer reads instantly and cannot block on UDP), so a change made from the LIFX app or a wall switch will not appear in Home.app until Homebridge restarts.
-- **Both halves share one physical power.** Switching one half "off" sets that region's brightness to 0; fixture power is only cut when *both* halves are off.
+- **Both halves share one physical power.** Switching one half "off" sets that half's brightness to 0; fixture power is only cut when *both* halves are off.
 - **One accessory cannot be in two HomeKit rooms**, so uplight and downlight of the same fixture always live in the same room.
 - **One 8×8 tile is addressed** (`tile_index: 0`). Multi-tile chains are not supported.
-- The corner model is verified for the LIFX Ceiling (pid 176/177). It is not claimed for any other matrix product — if yours differs, calibrate and pin it in `perDevice`.
+- **Only the LIFX Ceiling (pid 176/177) is supported.** The corner model is verified for that product and is not claimed for any other matrix product — a product it cannot model is skipped at discovery. That is a deliberate product decision, not a gap you can configure around; see "The geometry is not configurable".
 
 ## Troubleshooting
 
 | symptom | cause and fix |
 |---|---|
-| Red or magenta on the downlight panel while the uplight is red | a cell inside the panel face is listed in `uplight`. Identify the index and move it to `downlight`. There is no optical bleed, so this is always a mapping error — never diffusion. |
-| Uplight and downlight change together | both halves are resolving to the same region. Check `mappingFile` is the file you think it is, and that `uplight`/`downlight` do not both claim the same cells; restart Homebridge. |
+| Red or magenta on the downlight panel while the uplight is red | the corner model says the panel is cells other than 0, 7, 56, 63, and there is no optical bleed between the halves — so colour on the panel is a plugin bug, not diffusion. Run `npm run doctor`, note the pid, and open a hardware report with a photograph. |
+| Uplight and downlight change together | both halves are being commanded to the same colour. Check you are operating two distinct tiles in Home.app (one is `… Uplight`, one `… Downlight`) and restart Homebridge; run `npm run doctor` to confirm the fixture answers and the split is the compiled-in one. |
 | A light appears in Home.app twice, one always "No Response" | almost impossible since 1.1.0 — identity is the MAC, so an address change reuses the accessory. If you see it on a cache written before 1.1.0, restart Homebridge once so the MAC can be recorded, then remove the stale tile by removing and re-adding the bridge. Run `npm run doctor` to confirm the fixture answers. |
-| Home.app tile says "No Response" and the ceiling is unreachable | the fixture is off the network or was powered off; the plugin prunes it after 3 missed discovery cycles. |
+| Home.app tile says "No Response" and the ceiling is unreachable | the fixture is off the network or was powered off. The plugin counts 3 missed discovery cycles, logs that it is **keeping** the accessory and probes it by unicast — it never unregisters a light because discovery went quiet. |
 | Colour commands appear to succeed but the ceiling never changes | you are writing through a helper that sends `ack_required: false` (the bundled library's `tileSetTileState64` does exactly this). Send svc 715 ack-required; a real write answers svc 45 or 3. |
 | `svc 223` in the log | the fixture rejected the tile frame — usually a bad `width`/`length`/colour count or a wrong `tile_index`. `flush()` rejects rather than reporting success. |
 | Wrong fixture name in Home.app | the accessory label comes from the LIFX label at publish time; rename it in Home.app, not in the LIFX app (re-discovery does not relabel a cached accessory). |
-| Nothing is discovered | Discovery is multicast-only, so a LAN, VLAN or AP that blocks IGMP/multicast finds nothing — run Homebridge on the same subnet as the ceilings. Then check the fixture really is a Ceiling: `node bin/diag.js <label>` prints every discovered device with its pid and `features.matrix`, and only pid 176/177 with a populated tile are published. |
+| Nothing is discovered | Discovery is multicast-only, so a LAN, VLAN or AP that blocks IGMP/multicast finds nothing — run Homebridge on the same subnet as the ceilings. Then check the fixture really is a Ceiling: `npm run doctor` prints every discovered device with its pid, `features.matrix` and tile chain, and only pid 176/177 with a populated tile are published. |
 
 ## The API gotchas this plugin works around
 
@@ -282,7 +224,7 @@ npm test          # zero dependencies, no hardware needed
 node -e "require('./index.js')"
 ```
 
-`lib/matrix.js` and `lib/mapping.js` are pure and unit-tested. The LIFX dependency is loaded lazily so the test suite runs without hardware or `node_modules`.
+`lib/matrix.js` is pure and unit-tested. The LIFX dependency is loaded lazily so the test suite runs without hardware or `node_modules`.
 
 ## Credit
 
