@@ -156,9 +156,9 @@ assert.ok(!/untested guess/i.test(schema.headerDisplay), 'headerDisplay must not
 ok('config.schema.json ships no region knob and keeps mappingFile as the repair hatch');
 
 // Same guard for the user-facing docs: the published package describes the product,
-// not somebody's house.
+// not somebody's house. The pattern itself lives in the whole-package scan further down
+// — repeated literals here would make this file trip its own check.
 const readme = fs.readFileSync(require('path').join(__dirname, '..', 'README.md'), 'utf8');
-assert.ok(!/192\.168\.0\.|d0:73:d5|d073d5|Southwest|Northwest|Northeast|Southeast|rtsp:\/\/192|\/home\/homebridge|pish|WINS/i.test(readme), 'README.md leaked a site-specific address, MAC, room name or path');
 assert.match(readme, /DHCP reservation/i);
 assert.match(readme, /ack_required/i);
 ok('README.md is generic and states the corner model, ack rule and reservation requirement');
@@ -649,19 +649,41 @@ fx.destroy();
   const root = require('path').join(__dirname, '..');
   // Scans everything that ships, including test/ — this file used to hold the real
   // fixture labels it now forbids, so the guard has to cover its own source.
-  const leak = /192\.168\.0\.|d0:73:d5|d073d5|Southwest|Northwest|Northeast|Southeast|rtsp:\/\/192|\/home\/homebridge|pish/;
-  const dirs = ['lib', 'bin', 'tools', '.github'];
+  // Assembled from fragments at runtime so this file does not trip its own guard: a
+  // privacy check whose patterns are literal text is a check that cannot scan itself.
+  const leak = new RegExp([
+    '192' + '\\.' + '168' + '\\.0' + '\\.',
+    'd0' + ':73' + ':d5',
+    'd0' + '73d5',
+    'South' + 'west', 'North' + 'west', 'North' + 'east', 'South' + 'east',
+    'rtsp' + ':',
+    '/home' + '/homebridge',
+    'pi' + 'sh',
+  ].join('|'), 'i');
+  // Case-sensitive: the camera framing label, not the English word for winning.
+  const caps = new RegExp('W' + 'INS');
+  const dirs = ['lib', 'bin', 'test', '.github'];
   const hits = [];
   assert.ok(!fs2.existsSync(root + '/config'), 'the package must ship no config/ directory — no mapping data file ships');
+  // The development harness does not ship: RTSP capture scripts and the Python image
+  // measurement tools were how *we* looked at a ceiling while reverse-engineering it.
+  // An end user verifies by looking at the fixture, and a stranger has no camera
+  // mounted on their ceiling. They live in the estate repo's tools/lifx-lab/.
+  for (const gone of ['bin/shot.sh', 'bin/sweep-seam.sh', 'tools']) {
+    assert.ok(!fs2.existsSync(root + '/' + gone), `${gone} is development scaffolding and must not be published`);
+  }
   for (const d of dirs) {
+    if (!fs2.existsSync(root + '/' + d)) continue;
     for (const f of fs2.readdirSync(root + '/' + d)) {
       const p = root + '/' + d + '/' + f;
       if (!fs2.statSync(p).isFile()) continue;
-      if (leak.test(fs2.readFileSync(p, 'utf8'))) hits.push(d + '/' + f);
+      const txt = fs2.readFileSync(p, 'utf8');
+      if (leak.test(txt) || caps.test(txt)) hits.push(d + '/' + f);
     }
   }
   for (const f of ['README.md', 'CHANGELOG.md', 'SECURITY.md', 'config.schema.json']) {
-    if (fs2.existsSync(root + '/' + f) && leak.test(fs2.readFileSync(root + '/' + f, 'utf8'))) hits.push(f);
+    const txt = fs2.existsSync(root + '/' + f) ? fs2.readFileSync(root + '/' + f, 'utf8') : '';
+    if (leak.test(txt) || caps.test(txt)) hits.push(f);
   }
   assert.deepStrictEqual(hits, [], `published files must not name one person's installation: ${hits.join(', ')}`);
   ok('no shipped file leaks a site-specific address, MAC or room name');

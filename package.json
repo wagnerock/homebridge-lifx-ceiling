@@ -22,7 +22,6 @@
     "index.js",
     "lib/",
     "bin/",
-    "tools/*.py",
     "test/",
     "config.schema.json",
     "README.md",

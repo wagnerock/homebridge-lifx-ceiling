@@ -68,7 +68,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     console.log('read-back failed: ' + e.message);
   }
 
-  console.log('\nEXPECT: uplight red ring, panel uniformly BLUE, no magenta anywhere.');
+  console.log('\nEXPECT: red in the four CORNERS only, panel uniformly BLUE, no magenta anywhere.');
   fx.destroy();
   lifx.destroy();
 })().catch((e) => { console.log('fatal:', e.message); process.exit(1); });

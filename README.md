@@ -67,7 +67,7 @@ Both failed for the same reason: they put cells inside the panel face in `upligh
 
 **There is no optical bleed between the halves.** A cell belongs to one half and lights only there. That is what makes this debuggable by eye: contamination is always a mapping error, never diffusion.
 
-**Verify by looking at the fixture.** `tileGetTileState64` read-back proves only what is in the fixture's *buffer*, not what lit up. A write can be accepted and still paint cells you did not intend, and a frame can be in the buffer while the panel is dark. The only proof is a photograph or your own eyes on the lit fixture — which is exactly what `bin/calibrate.js` and `tools/*.py` are there to give you.
+**Verify by looking at the fixture.** `tileGetTileState64` read-back proves only what is in the fixture's *buffer*, not what lit up. A write can be accepted and still paint cells you did not intend, and a frame can be in the buffer while the panel is dark. The only proof is a photograph or your own eyes on the lit fixture — which is exactly what `bin/calibrate.js` asks you for.
 
 ## Tile writes require `ack_required: true`
 
@@ -189,7 +189,7 @@ If you had `mappingFile` set to the file this plugin used to ship, you can delet
 ```
 
 - `uplight` / `downlight` must not overlap and must together cover all 64 cells, or the mapping is refused with a precise error.
-- A region is either an explicit index array or a radial string (`disc@0.88`, `annulus@0.88`, `ring`, `core`, `all`). **Index arrays are the verified shape** — use a radial string only if you have measured your own fixture and want the blocky approximation it produces. Inside this file `ring`/`core` still resolve, for per-fixture experiments; they are the disproven model — the corners are the shape that is verified.
+- **Use explicit index arrays.** `ring`, `core`, `disc@t` and `annulus@t` still parse, because `bin/calibrate.js` needs them to sweep a seam on a fixture nobody has documented — but they are the *disproven* model on this product: they put colour inside the panel face, and on the LIFX Ceiling that paints magenta across downlight LEDs you cannot un-ring. If your fixture is a LIFX Ceiling, the shape is `[0, 7, 56, 63]` and you should not need to write a mapping file at all.
 - `perDevice` keys are MACs (preferred — MACs survive an IP change within one Homebridge install) or IPs. Keys are canonicalised to lowercase colon form, and any input shape (`AA:BB:CC:DD:EE:FF`, `aabbccddeeff`, `aa:bb:cc:dd:ee:ff`) resolves to the same fixture. IPv4 keys are matched verbatim and never mistaken for MACs.
 - Your fixtures' addresses belong in *your* mapping file, never in the published package: set `mappingFile` to a path outside the plugin directory.
 - The mapping is read once at startup. Restart Homebridge after editing it.
@@ -207,10 +207,9 @@ a future release removes it, tile writes silently fall back to un-acked, and thi
 command that tells you. The svc-715 check rewrites each fixture's *current* colours, so
 the room looks exactly as it did while it runs.
 
-Every tool in `bin/` is run with `node bin/<tool>.js <fixture>`; only `shot.sh` and
-`sweep-seam.sh` are executable directly.
+Every tool in `bin/` is run with `node bin/<tool>.js <fixture>`.
 
-## Calibration and the measurement tools
+## Calibration
 
 These are the reason this plugin works on hardware nobody documented. Everything takes the fixture address as an argument; nothing has your address baked in.
 
@@ -222,16 +221,10 @@ node bin/calibrate.js --invert                    # flip the current global mapp
 
 `bin/calibrate.js` paints two colours, holds them long enough to see, records the answer, and restores your original colour and power in a `finally` block.
 
-To settle a seam or a suspect cell, hold one state and shoot it:
-
-```bash
-CAM=rtsp://10.0.0.60/live0 ./bin/shot.sh 192.168.1.50 up up.jpg
-python3 tools/measure.py up.jpg --label up
-```
-
-`CAM` is required — there is no default camera. `tools/*.py` turn "is some of the downlight on?" into a number: radial luminance profiles, red→blue handover radius, per-ring contamination. Use them if you are chasing a seam on a fixture that behaves differently from the corner model; do not use them to second-guess the four corners, which are settled.
-
-Colour, not brightness, is the measurement: a camera's auto-exposure normalises the scene, so absolute luminance from an uncalibrated webcam is worthless (a fully-lit and a fully-dark frame have both measured the same mean here). Hue survives auto-exposure — hence red uplight, blue downlight.
+**Look at the fixture.** Paint one half red and the other blue, then walk in and see which
+half is which — that single observation is what settled the geometry here, and it is all the
+instrumentation calibration needs. Ask a phone to film it if you want the evidence, but the
+plugin cannot see your ceiling and does not try to.
 
 ## Compatibility
 
